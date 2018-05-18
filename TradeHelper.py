@@ -55,10 +55,16 @@ class CentralControl(Observer):
                        'gcp': 1, 'alchemy': 1, 'chisel': 1, 'scouring': 1, 'regal': 1, 'regret': 1, 'divine': 1,
                        'vaal': 1}
 
-        self.observe('new trade message', self.new_trade_message_received)
+        self.observe('new message', self.new_trade_message_received)
+        self.observe('new command', self.new_command_message_received)
 
     def new_trade_message_received(self, messageData):
         print(messageData)
+        if self.ratio_checker(itemName=messageData['itemName'],
+                              itemQuant=messageData['itemQuant'],
+                              offer=messageData['offerQuant']):
+            # quantity is acceptable
+            self.tradeList.append(messageData)
 
     def new_command_message_received(self, command):
         print(command)
@@ -119,8 +125,7 @@ class MessageParserBot:
     testingPath = "C:\\Users\\Gabriel Akers\\Documents\\testing.txt"
     tradeKey1 = "Hi, I'd like to buy your"
     tradeKey2 = "Hi, I would like to buy your"
-    commandKey1 = "Execute66: "
-
+    commandKey1 = "Execute66:"
 
     def reversed_lines(self, file):
         """Generate the lines of file in reverse order."""
