@@ -146,20 +146,21 @@ class MessageParserBot:
             file.seek(here, os.SEEK_SET)
             yield file.read(delta)
 
-    def check_last_line(self, file, key, key2):
+    def check_last_line(self, file, key, key2, key3):
         """searches the last line of the file for the search strings and sends it to the parser method"""
 
         for line in islice(self.reversed_lines(file), 1):
             s = line.rstrip('\n')
             if key in s or key2 in s:
                 self.parse_trade_message(s)
-            elif
+            elif key3 in s:
+                self.parse_command_message(s)
 
     def monitor_client_text(self):
         with open(self.testingPath) as clientFile:
             while True:
                 # if the string is found parse it to extract necessary info
-                self.check_last_line(file=clientFile, key=self.tradeKey1, key2=self.tradeKey2)
+                self.check_last_line(file=clientFile, key=self.tradeKey1, key2=self.tradeKey2, key3=self.commandKey1)
 
                 time.sleep(self.interval)
 
