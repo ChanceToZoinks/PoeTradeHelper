@@ -1,35 +1,24 @@
 from itertools import islice
 import os
 import threading
-import time
+from time import sleep
+from pyautogui import *
+from Observable import *
+from PoEApiTools import *
+import ctypes
+import ctypes.wintypes
+from subprocess import run
+
+FAILSAFE = True
+POEPATH = "C:\Program Files (x86)\Grinding Gear Games\Path of Exile\PathOfExile.exe"
 
 
-class Observer:
-    """Found here: https://stackoverflow.com/questions/1904351/python-observer-pattern-examples-tips"""
+class Point:
+    """2D point in space data structure."""
 
-    _observers = []
-
-    def __init__(self):
-        self._observers.append(self)
-        self._observables = {}
-
-    def observe(self, event_name, callback):
-        self._observables[event_name] = callback
-
-
-class Event:
-    """Found here: https://stackoverflow.com/questions/1904351/python-observer-pattern-examples-tips"""
-
-    def __init__(self, name, data, autofire = True):
-        self.name = name
-        self.data = data
-        if autofire:
-            self.fire()
-
-    def fire(self):
-        for observer in Observer._observers:
-            if self.name in observer._observables:
-                observer._observables[self.name](self.data)
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
 
 
 class CentralControl(Observer):
@@ -37,58 +26,134 @@ class CentralControl(Observer):
     necessary to maintain the correct order of events and to ensure trades are being completed.
     Holds instances of the three bot types"""
 
-    def __init__(self, league='Bestiary'):
+    def __init__(self, league='Bestiary', interval=1):
         # Observer's init needs to be called
         Observer.__init__(self)
 
+        self.interval = interval
         self.parser = MessageParserBot()
-        self.finder = CurrencyFinderBot()
+        self.finder = ItemFinderBot()
         self.trader = TradeBot()
         self.messenger = MessengerBot()
         self.inventory = InventoryManagerBot()
+
+        # opens poe and gets the hwnd and makes poe foreground/active window
+        try:
+            run(POEPATH)
+        except FileNotFoundError:
+            print("Can't find PoE executable. Check your POEPATH.")
+        win = getWindow("Path of Exile")
+        ctypes.windll.user32.SwitchToThisWindow(win._hwnd)
+        win.set_foreground()
 
         self.league = league
         # holds the list of all new messages seens so they can be processed sequentially
         self.tradeList = []
         # all ratios listed in chaos equiv
         self.sellRatios = {'alteration': 1, "jeweller's": 1, 'fusing': 1, "exalted": 1, "chance": 1, "chrome": 1,
-                       'gcp': 1, 'alchemy': 1, 'chisel': 1, 'scouring': 1, 'regal': 1, 'regret': 1, 'divine': 1,
-                       'vaal': 1}
+                           'gcp': 1, 'alchemy': 1, 'chisel': 1, 'scouring': 1, 'regal': 1, 'regret': 1, 'divine': 1,
+                           'vaal': 1}
 
         self.observe('new message', self.new_trade_message_received)
         self.observe('new command', self.new_command_message_received)
 
+        trade_work_thread = threading.Thread(target=self.work_trade_list)
+        trade_work_thread.daemon = True
+        trade_work_thread.start()
+
+    def work_trade_list(self):
+        while True:
+            if len(self.tradeList) > 0:
+                # if the trade list contains anything deal with them sequentially
+                self.transact_trade(self.tradeList.pop(0))
+
+    def transact_trade(self, tradeData):
+        """Handles the trading by calling the appropriate methods in the bots"""
+
+        # first check to be sure we even have the item
+
+        # if we dont have the item inform the player otherwise invite them
+
+        # click the correct screen locations to complete the trade
+
     def new_trade_message_received(self, messageData):
+        """Callback for trade message being received. Appends the trade to the list if the ratio offered is correct."""
+
         print(messageData)
         if self.ratio_checker(itemName=messageData['itemName'],
                               itemQuant=messageData['itemQuant'],
                               offer=messageData['offerQuant']):
-            # quantity is acceptable
+            # ratio matches so append to the trade queue and begin the the trade sequence
             self.tradeList.append(messageData)
 
     def new_command_message_received(self, command):
+        """Callback for command received."""
+
         print(command)
 
     def ratio_checker(self, itemName, itemQuant, offer):
         """Checks the ratio of chaos offered/items requested to make sure they match the ratio we selling at"""
 
-        return offer/itemQuant == self.sellRatios[itemName]
+        return float(offer)/float(itemQuant) == self.sellRatios[itemName]
 
 
 class TradeBot:
-    """Handles collecting the currency and trading the correct person"""
+    """Handles collecting the currency and trading the correct person in addition to kicking, changing hideouts.
+       Holds methods to perform chat console commands and click the mouse at the correct locations."""
 
     def __init__(self):
         print('Initializing trade bot...')
         print('Trade bot initialized.')
 
+    def shift_click(self, point):
+        """Ctrl+left clicks at a location. Point is of type Point."""
 
-class CurrencyFinderBot:
+        keyDown('shift')
+        click(x=point.x, y=point.y)
+        keyUp('shift')
+
+    def control_click(self, point):
+        """Ctrl+left clicks at a location. Point is of type Point."""
+
+        keyDown('ctrl')
+        click(x=point.x, y=point.y)
+        keyUp('ctrl')
+
+    def invite_player(self, playerName):
+        """Handles inviting the correct player to the group."""
+
+        press('enter')
+        typewrite('/invite {0}'.format(playerName))
+        press('enter')
+
+    def kick_player(self, playerName):
+        """Handles kicking players."""
+
+        press('enter')
+        typewrite('/kick {0}'.format(playerName))
+        press('enter')
+
+    def init_trade(self, playerName):
+        """Handles initiation of trade with a player. Returns true so it can be queued."""
+
+        press('enter')
+        typewrite('/tradewith {0}'.format(playerName))
+        press('enter')
+
+    def go_hideout(self, playerName):
+        """Handles travelling to hideouts. Returns true so it can be queued."""
+
+        press('enter')
+        typewrite('/hideout {0}'.format(playerName))
+        press('enter')
+
+
+class ItemFinderBot:
     """Handles locating the on screen coordinates of the currency in the currency tab for the trade bot"""
 
     def __init__(self):
-        print('Initializing currency finder bot...')
-        print('Currency finder bot initialized.')
+        print('Initializing item finder bot...')
+        print('Item finder bot initialized.')
 
 
 class MessengerBot:
@@ -96,7 +161,20 @@ class MessengerBot:
 
     def __init__(self):
         print('Initializing messenger bot...')
+
         print('Messenger bot initialized.')
+
+    def build_message(self, target, messagestring):
+        """Sets the class level variable 'msg' which can then be used."""
+
+        return "@{0} {1}".format(target, messagestring)
+
+    def send_message(self, message):
+        """Handles messaging players."""
+
+        press('enter')
+        typewrite(message)
+        press('enter')
 
 
 class InventoryManagerBot:
@@ -167,7 +245,7 @@ class MessageParserBot:
                 # if the string is found parse it to extract necessary info
                 self.check_last_line(file=clientFile, key=self.tradeKey1, key2=self.tradeKey2, key3=self.commandKey1)
 
-                time.sleep(self.interval)
+                sleep(self.interval)
 
     def new_line(self, message):
         """Handles making sure we don't needlessly send the same message to the central control"""
