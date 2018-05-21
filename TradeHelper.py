@@ -38,11 +38,13 @@ class CentralControl(Observer):
         self.inventory = InventoryManagerBot()
 
         # opens poe and gets the hwnd and makes poe foreground/active window
-        try:
-            run(POEPATH)
-        except FileNotFoundError:
-            print("Can't find PoE executable. Check your POEPATH.")
         win = getWindow("Path of Exile")
+        if win is None:
+            try:
+                run(POEPATH)
+                win = getWindow("Path of Exile")
+            except FileNotFoundError:
+                print("Can't find PoE executable. Check your POEPATH.")
         ctypes.windll.user32.SwitchToThisWindow(win._hwnd)
         win.set_foreground()
 
