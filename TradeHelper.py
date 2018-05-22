@@ -4,14 +4,19 @@ import threading
 from time import sleep
 from pyautogui import *
 from Observable import *
-from PoEApiTools import *
+from PoEApiTools import PoeApiTools
 import ctypes
 import ctypes.wintypes
 from subprocess import run
+import cv2
 
 FAILSAFE = True
 POEPATH = "C:\Program Files (x86)\Grinding Gear Games\Path of Exile\PathOfExile.exe"
+DIRNAME = os.path.dirname(__file__)
 
+
+def rel_path(filename):
+    return os.path.join(DIRNAME, 'Resources/{0}'.format(filename))
 
 class Point:
     """2D point in space data structure."""
@@ -32,7 +37,7 @@ class CentralControl(Observer):
 
         self.interval = interval
         self.parser = MessageParserBot()
-        self.finder = ItemFinderBot()
+        self.finder = FinderBot()
         self.trader = TradeBot()
         self.messenger = MessengerBot()
         self.inventory = InventoryManagerBot()
@@ -107,6 +112,11 @@ class TradeBot:
         print('Initializing trade bot...')
         print('Trade bot initialized.')
 
+    def click(self, point, button='left'):
+        """Regular old click at the location specified by the point. button=['left'|'right'|'middle']"""
+
+        click(x=point.x, y=point.y, button=button)
+
     def shift_click(self, point):
         """Ctrl+left clicks at a location. Point is of type Point."""
 
@@ -150,12 +160,117 @@ class TradeBot:
         press('enter')
 
 
-class ItemFinderBot:
+class FinderBot:
     """Handles locating the on screen coordinates of the currency in the currency tab for the trade bot"""
 
     def __init__(self):
-        print('Initializing item finder bot...')
-        print('Item finder bot initialized.')
+        print('Initializing finder bot...')
+
+        self.currencyImages = {'wisdom': rel_path('wisdom.png'),
+                               'portal': rel_path('portal.png'),
+                               'alchemy': rel_path('alchemy.png'),
+                               'alteration': rel_path('alteration.png'),
+                               'annul': rel_path('annul.png'),
+                               'armorer': rel_path('armorer.png'),
+                               'augmentation': rel_path('augmentation.png'),
+                               'bauble': rel_path('bauble.png'),
+                               'blessed': rel_path('blessed.png'),
+                               'chance': rel_path('chance.png'),
+                               'chaos': rel_path('chaos.png'),
+                               'chisel': rel_path('chisel.png'),
+                               'chromatic': rel_path('chromatic.png'),
+                               'divine': rel_path('divine.png'),
+                               'exalt': rel_path('exalt.png'),
+                               'exalt shard': rel_path('exaltShard.png'),
+                               'fusing': rel_path('fusing.png'),
+                               'gcp': rel_path('gcp.png'),
+                               'jeweller': rel_path('jeweller.png'),
+                               'mirror of kalandra': rel_path('mirror.png'),
+                               'perandus coin': rel_path('perandusCoin.png'),
+                               'master sextant': rel_path('redSextant.png'),
+                               'regal': rel_path('regal.png'),
+                               'regret': rel_path('regret.png'),
+                               'scouring': rel_path('scouring.png'),
+                               'silver coin': rel_path('silverCoin.png'),
+                               'transmutation': rel_path('transmutation.png'),
+                               'vaal': rel_path('vaal.png'),
+                               'whetstone': rel_path('whetstone.png'),
+                               'apprentice sextant': rel_path('whiteSextant.png'),
+                               'journeyman sextant': rel_path('yellowSextant.png')}
+        self.currencyLocations = {'wisdom': None,
+                               'portal': None,
+                               'alchemy': None,
+                               'alteration': None,
+                               'annul': None,
+                               'armorer': None,
+                               'augmentation': None,
+                               'bauble': None,
+                               'blessed': None,
+                               'chance': None,
+                               'chaos': None,
+                               'chisel': None,
+                               'chromatic': None,
+                               'divine': None,
+                               'exalt': None,
+                               'exalt shard': None,
+                               'fusing': None,
+                               'gcp': None,
+                               'jeweller': None,
+                               'mirror of kalandra': None,
+                               'perandus coin': None,
+                               'master sextant': None,
+                               'regal': None,
+                               'regret': None,
+                               'scouring': None,
+                               'silver coin': None,
+                               'transmutation': None,
+                               'vaal': None,
+                               'whetstone': None,
+                               'apprentice sextant': None,
+                               'journeyman sextant': None}
+
+        self.stashImages = {'stash1': rel_path('stash1.png'),
+                            'stash2': rel_path('stash2.png')}
+        self.guildStashImages = {'guildStash1': rel_path('guildStash1.png'),
+                                 'guildStash2': rel_path('guildStash2.png')}
+        print('Finder bot initialized.')
+
+    def find_currency_slots(self, confidence=.95):
+        """Should only be called when currency tab is completely empty (eg start of league/account).
+           Runs perfectly when tested on 1920x1080 screen."""
+
+        for img in self.currencyImages:
+            p = Point(0, 0)
+            # pyautogui has undocumented confidence parameter for locate function
+            p.x, p.y = locateCenterOnScreen(self.currencyImages[img], confidence=confidence)
+            self.currencyLocations[img] = p
+
+    def find_stash(self, confidence=.95, guild=False):
+        """Iterates over the dictionary of stash images and attempts to locate them. Returns when it does."""
+
+        loc = Point(0, 0)
+        if guild:
+            for i in self.guildStashImages:
+                try:
+                    loc.x, loc.y = locateCenterOnScreen(self.guildStashImages[i], confidence=confidence)
+                except TypeError:
+                    print('Image not found trying next image...')
+                    continue
+                else:
+                    return loc
+                finally:
+                    print('Image not found.')
+        else:
+            for i in self.stashImages:
+                try:
+                    loc.x, loc.y = locateCenterOnScreen(self.stashImages[i], confidence=confidence)
+                except TypeError:
+                    print("Image not found trying next image...")
+                    continue
+                else:
+                    return loc
+                finally:
+                    print('Image not found.')
 
 
 class MessengerBot:
