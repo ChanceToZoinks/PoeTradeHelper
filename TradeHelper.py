@@ -8,7 +8,10 @@ from PoEApiTools import PoeApiTools
 import ctypes
 import ctypes.wintypes
 from subprocess import run
-import cv2
+import json
+from json import JSONEncoder
+from json import JSONDecoder
+import numpy as np
 
 FAILSAFE = True
 POEPATH = "C:\Program Files (x86)\Grinding Gear Games\Path of Exile\PathOfExile.exe"
@@ -17,6 +20,36 @@ DIRNAME = os.path.dirname(__file__)
 
 def rel_path(filename):
     return os.path.join(DIRNAME, 'Resources/{0}'.format(filename))
+
+
+class PointEncoder(JSONEncoder):
+    """Custom encoder for Point data structs into nested dict for json storage.
+       Pass as cls arg in json.dump to do Point(x,y) -> {'__type__': 'Point', 'x': #, 'y': #}"""
+
+    def default(self, o):
+        if isinstance(o, Point):
+            if isinstance(o.x, np.generic) and isinstance(o.y, np.generic):
+                # values returned by pyautogui's locate() functions are apparently of type numpy.int64
+                return {'__type__': 'Point', 'x': np.asscalar(o.x), 'y': np.asscalar(o.y)}
+            else:
+                return {'__type__': 'Point', 'x': o.x, 'y': o.y}
+        return JSONEncoder.default(self, o)
+
+
+class PointDecoder(JSONDecoder):
+    """Custom decoder to extract Point data struct from properly labeled dict structures from json files.
+       Pass as cls arg in json.load to do {'__type__': 'Point', 'x': #, 'y': #} -> Point(x,y)"""
+
+    def __init__(self, *args, **kwargs):
+        JSONDecoder.__init__(self, object_hook=self.object_hook, *args, **kwargs)
+
+    def object_hook(self, o):
+        if '__type__' not in o:
+            return o
+        if '__type__' in o and o['__type__'] == 'Point':
+            return Point(o['x'], o['y'])
+        return o
+
 
 class Point:
     """2D point in space data structure."""
@@ -28,8 +61,7 @@ class Point:
 
 class CentralControl(Observer):
     """This is the central event handler. It holds the references for each of the five bots and contains callbacks
-    necessary to maintain the correct order of events and to ensure trades are being completed.
-    Holds instances of the three bot types"""
+       necessary to maintain the correct order of events and to ensure trades are being completed."""
 
     def __init__(self, league='Bestiary', interval=1):
         # Observer's init needs to be called
@@ -112,20 +144,20 @@ class TradeBot:
         print('Initializing trade bot...')
         print('Trade bot initialized.')
 
-    def click(self, point, button='left'):
-        """Regular old click at the location specified by the point. button=['left'|'right'|'middle']"""
+    def click(self, point: Point, button='left'):
+        """Regular old click at the location specified by the point. button=['left'|'right'|'middle']."""
 
         click(x=point.x, y=point.y, button=button)
 
-    def shift_click(self, point):
+    def shift_click(self, point: Point):
         """Ctrl+left clicks at a location. Point is of type Point."""
 
         keyDown('shift')
         click(x=point.x, y=point.y)
         keyUp('shift')
 
-    def control_click(self, point):
-        """Ctrl+left clicks at a location. Point is of type Point."""
+    def control_click(self, point: Point):
+        """Ctrl+left clicks at a location."""
 
         keyDown('ctrl')
         click(x=point.x, y=point.y)
@@ -146,14 +178,14 @@ class TradeBot:
         press('enter')
 
     def init_trade(self, playerName):
-        """Handles initiation of trade with a player. Returns true so it can be queued."""
+        """Handles initiation of trade with a player."""
 
         press('enter')
         typewrite('/tradewith {0}'.format(playerName))
         press('enter')
 
     def go_hideout(self, playerName):
-        """Handles travelling to hideouts. Returns true so it can be queued."""
+        """Handles travelling to hideouts."""
 
         press('enter')
         typewrite('/hideout {0}'.format(playerName))
@@ -161,7 +193,7 @@ class TradeBot:
 
 
 class FinderBot:
-    """Handles locating the on screen coordinates of the currency in the currency tab for the trade bot"""
+    """Handles locating the on screen coordinates of the currency in the currency tab for the trade bot."""
 
     def __init__(self):
         print('Initializing finder bot...')
@@ -244,8 +276,11 @@ class FinderBot:
             # pyautogui has undocumented confidence parameter for locate function
             p.x, p.y = locateCenterOnScreen(self.currencyImages[img], confidence=confidence)
             self.currencyLocations[img] = p
+        with open('currencyStashLocations.json', 'w') as f:
+            json.dump(obj=self.currencyLocations, fp=f,
+                      cls=PointEncoder, indent=4, sort_keys=True)
 
-    def find_stash(self, confidence=.95, guild=False):
+    def find_stash(self, confidence=.75, guild=False):
         """Iterates over the dictionary of stash images and attempts to locate them. Returns when it does."""
 
         loc = Point(0, 0)
@@ -254,23 +289,23 @@ class FinderBot:
                 try:
                     loc.x, loc.y = locateCenterOnScreen(self.guildStashImages[i], confidence=confidence)
                 except TypeError:
-                    print('Image not found trying next image...')
+                    print('Guild stash not found trying next image...')
                     continue
                 else:
                     return loc
                 finally:
-                    print('Image not found.')
+                    print('Guild stash not found.')
         else:
             for i in self.stashImages:
                 try:
                     loc.x, loc.y = locateCenterOnScreen(self.stashImages[i], confidence=confidence)
                 except TypeError:
-                    print("Image not found trying next image...")
+                    print("Stash not found trying next image...")
                     continue
                 else:
                     return loc
                 finally:
-                    print('Image not found.')
+                    print('Stash not found.')
 
 
 class MessengerBot:
@@ -282,7 +317,7 @@ class MessengerBot:
         print('Messenger bot initialized.')
 
     def build_message(self, target, messagestring):
-        """Sets the class level variable 'msg' which can then be used."""
+        """Returns a trade messsage in the form @['Playername'] ['message']"""
 
         return "@{0} {1}".format(target, messagestring)
 
@@ -299,6 +334,7 @@ class InventoryManagerBot:
 
     def __init__(self):
         print('Initializing inventory manager bot...')
+
         print('Inventory manager bot initialized.')
 
 
