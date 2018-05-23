@@ -261,10 +261,8 @@ class FinderBot:
                                'apprentice sextant': None,
                                'journeyman sextant': None}
 
-        self.stashImages = {'stash1': rel_path('stash1.png'),
-                            'stash2': rel_path('stash2.png')}
-        self.guildStashImages = {'guildStash1': rel_path('guildStash1.png'),
-                                 'guildStash2': rel_path('guildStash2.png')}
+        self.stashImages = {'stash0': rel_path('stash0.png')}
+        self.guildStashImages = {'guildStash0': rel_path('guildStash0.png')}
         print('Finder bot initialized.')
 
     def find_currency_slots(self, confidence=.95):
@@ -280,32 +278,26 @@ class FinderBot:
             json.dump(obj=self.currencyLocations, fp=f,
                       cls=PointEncoder, indent=4, sort_keys=True)
 
-    def find_stash(self, confidence=.75, guild=False):
-        """Iterates over the dictionary of stash images and attempts to locate them. Returns when it does."""
+    def find_stash(self, confidence=.9, guild=False):
+        """Attempts to locate the stash indicator. Returns when it does.
+        MUST HAVE ALT CLICKED IN GAME SO "STASH" AND "GUILD STASH" LABELS ARE SHOWING.
+        Appears to work perfectly at 1920x1080 resolution with max graphics settings in fullscreen and at max zoom."""
 
         loc = Point(0, 0)
         if guild:
-            for i in self.guildStashImages:
-                try:
-                    loc.x, loc.y = locateCenterOnScreen(self.guildStashImages[i], confidence=confidence)
-                except TypeError:
-                    print('Guild stash not found trying next image...')
-                    continue
-                else:
-                    return loc
-                finally:
-                    print('Guild stash not found.')
+            try:
+                loc.x, loc.y = locateCenterOnScreen(self.guildStashImages['guildStash0'], confidence=confidence)
+            except TypeError:
+                print('Guild stash not found trying next image...')
+            else:
+                return loc
         else:
-            for i in self.stashImages:
-                try:
-                    loc.x, loc.y = locateCenterOnScreen(self.stashImages[i], confidence=confidence)
-                except TypeError:
-                    print("Stash not found trying next image...")
-                    continue
-                else:
-                    return loc
-                finally:
-                    print('Stash not found.')
+            try:
+                loc.x, loc.y = locateCenterOnScreen(self.stashImages['stash0'], confidence=confidence)
+            except TypeError:
+                print("Stash not found maybe confidence is too high?")
+            else:
+                return loc
 
 
 class MessengerBot:
