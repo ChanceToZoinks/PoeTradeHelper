@@ -4,7 +4,7 @@ import threading
 from time import sleep
 from pyautogui import *
 from Observable import *
-from PoEApiTools import PoeApiTools
+from PoEApiTools import PoeApiTools as pat
 import ctypes
 import ctypes.wintypes
 from subprocess import run
@@ -14,14 +14,32 @@ from json import JSONDecoder
 import numpy as np
 
 FAILSAFE = True
-POEPATH = "C:\Program Files (x86)\Grinding Gear Games\Path of Exile\PathOfExile.exe"
+POEPATH = "E:\Games\Path of Exile\Path of Exile\PathOfExile.exe"
+CLIENTPATH = "E:\Games\Path of Exile\Path of Exile\logs\Client.txt"
 DIRNAME = os.path.dirname(__file__)
+LEAGUE = 'Bestiary'
+ACCTNAME = 'testaccount_aziz'
 
 
 def rel_path(filename):
     return os.path.join(DIRNAME, 'Resources/{0}'.format(filename))
 
 
+class Currency:
+    def __init__(self, numCurrencyAvailable: int, maxInOneStack: int):
+        self.count = numCurrencyAvailable
+        self.stackSize = maxInOneStack
+
+
+class Point:
+    """2D point in space data structure."""
+
+    def __init__(self, x: int, y: int):
+        self.x = x
+        self.y = y
+
+
+# noinspection PyTypeChecker
 class PointEncoder(JSONEncoder):
     """Custom encoder for Point data structs into nested dict for json storage.
        Pass as cls arg in json.dump to do Point(x,y) -> {'__type__': 'Point', 'x': #, 'y': #}"""
@@ -51,19 +69,11 @@ class PointDecoder(JSONDecoder):
         return o
 
 
-class Point:
-    """2D point in space data structure."""
-
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-
-
 class CentralControl(Observer):
     """This is the central event handler. It holds the references for each of the five bots and contains callbacks
        necessary to maintain the correct order of events and to ensure trades are being completed."""
 
-    def __init__(self, league='Bestiary', interval=1):
+    def __init__(self, league=LEAGUE, interval=1):
         # Observer's init needs to be called
         Observer.__init__(self)
 
@@ -106,7 +116,7 @@ class CentralControl(Observer):
                 # if the trade list contains anything deal with them sequentially
                 self.transact_trade(self.tradeList.pop(0))
 
-    def transact_trade(self, tradeData):
+    def transact_trade(self, tradeData: dict):
         """Handles the trading by calling the appropriate methods in the bots"""
 
         # first check to be sure we even have the item
@@ -115,7 +125,7 @@ class CentralControl(Observer):
 
         # click the correct screen locations to complete the trade
 
-    def new_trade_message_received(self, messageData):
+    def new_trade_message_received(self, messageData: dict):
         """Callback for trade message being received. Appends the trade to the list if the ratio offered is correct."""
 
         print(messageData)
@@ -125,12 +135,12 @@ class CentralControl(Observer):
             # ratio matches so append to the trade queue and begin the the trade sequence
             self.tradeList.append(messageData)
 
-    def new_command_message_received(self, command):
+    def new_command_message_received(self, command: str):
         """Callback for command received."""
 
         print(command)
 
-    def ratio_checker(self, itemName, itemQuant, offer):
+    def ratio_checker(self, itemName: str, itemQuant: float, offer: float) -> bool:
         """Checks the ratio of chaos offered/items requested to make sure they match the ratio we selling at"""
 
         return float(offer)/float(itemQuant) == self.sellRatios[itemName]
@@ -163,28 +173,28 @@ class TradeBot:
         click(x=point.x, y=point.y)
         keyUp('ctrl')
 
-    def invite_player(self, playerName):
+    def invite_player(self, playerName: str):
         """Handles inviting the correct player to the group."""
 
         press('enter')
         typewrite('/invite {0}'.format(playerName))
         press('enter')
 
-    def kick_player(self, playerName):
+    def kick_player(self, playerName: str):
         """Handles kicking players."""
 
         press('enter')
         typewrite('/kick {0}'.format(playerName))
         press('enter')
 
-    def init_trade(self, playerName):
+    def init_trade(self, playerName: str):
         """Handles initiation of trade with a player."""
 
         press('enter')
         typewrite('/tradewith {0}'.format(playerName))
         press('enter')
 
-    def go_hideout(self, playerName):
+    def go_hideout(self, playerName: str):
         """Handles travelling to hideouts."""
 
         press('enter')
@@ -229,40 +239,41 @@ class FinderBot:
                                'whetstone': rel_path('whetstone.png'),
                                'apprentice sextant': rel_path('whiteSextant.png'),
                                'journeyman sextant': rel_path('yellowSextant.png')}
-        self.currencyLocations = {'wisdom': None,
-                               'portal': None,
-                               'alchemy': None,
-                               'alteration': None,
-                               'annul': None,
-                               'armorer': None,
-                               'augmentation': None,
-                               'bauble': None,
-                               'blessed': None,
-                               'chance': None,
-                               'chaos': None,
-                               'chisel': None,
-                               'chromatic': None,
-                               'divine': None,
-                               'exalt': None,
-                               'exalt shard': None,
-                               'fusing': None,
-                               'gcp': None,
-                               'jeweller': None,
-                               'mirror of kalandra': None,
-                               'perandus coin': None,
-                               'master sextant': None,
-                               'regal': None,
-                               'regret': None,
-                               'scouring': None,
-                               'silver coin': None,
-                               'transmutation': None,
-                               'vaal': None,
-                               'whetstone': None,
-                               'apprentice sextant': None,
-                               'journeyman sextant': None}
-
-        self.stashImages = {'stash0': rel_path('stash0.png')}
-        self.guildStashImages = {'guildStash0': rel_path('guildStash0.png')}
+        self.currencyLocations = {'scroll of wisdom': None,
+                                  'portal scroll': None,
+                                  'orb of alchemy': None,
+                                  'orb of alteration': None,
+                                  'orb of annulment': None,
+                                  "armourer's scrap": None,
+                                  'orb of augmentation': None,
+                                  "glassblower's bauble": None,
+                                  'blessed orb': None,
+                                  'orb of chance': None,
+                                  'chaos orb': None,
+                                  "cartographer's chisel": None,
+                                  'chromatic orb': None,
+                                  'divine orb': None,
+                                  'exalted orb': None,
+                                  'exalted shard': None,
+                                  'orb of fusing': None,
+                                  "gemcutter's prism": None,
+                                  "jeweller's orb": None,
+                                  'mirror of kalandra': None,
+                                  'perandus coin': None,
+                                  "master cartographer's sextant": None,
+                                  'regal orb': None,
+                                  'orb of regret': None,
+                                  'orb of scouring': None,
+                                  'silver coin': None,
+                                  'orb of transmutation': None,
+                                  'vaal orb': None,
+                                  "blacksmith's whetstone": None,
+                                  "apprentice cartographer's sextant": None,
+                                  "journeyman cartographer's sextant": None}
+        self.stashImages = {'stash0': rel_path('stash0.png'),
+                            'stash1': rel_path('stash1.png')}
+        self.guildStashImages = {'guildStash0': rel_path('guildStash0.png'),
+                                 'guildStash1': rel_path('guildStash1.png')}
         print('Finder bot initialized.')
 
     def find_currency_slots(self, confidence=.95):
@@ -278,7 +289,7 @@ class FinderBot:
             json.dump(obj=self.currencyLocations, fp=f,
                       cls=PointEncoder, indent=4, sort_keys=True)
 
-    def find_stash(self, confidence=.9, guild=False):
+    def find_stash(self, confidence=.9, guild=False) -> Point:
         """Attempts to locate the stash indicator. Returns when it does.
         MUST HAVE ALT CLICKED IN GAME SO "STASH" AND "GUILD STASH" LABELS ARE SHOWING.
         Appears to work perfectly at 1920x1080 resolution with max graphics settings in fullscreen and at max zoom."""
@@ -299,6 +310,17 @@ class FinderBot:
             else:
                 return loc
 
+    def confirm_in_stash(self, confidence=.95, guild=False) -> bool:
+        """Looks for a specific image to confirm we have indeed opened the stash.
+           Confidence levels somewhere between .9 and .95 fail to differentiate between guild and regular stash."""
+
+        if guild:
+            check = locateOnScreen(self.guildStashImages['guildStash1'], confidence=confidence, grayscale=True)
+            return bool(check)
+        else:
+            check = locateOnScreen(self.stashImages['stash1'], confidence=confidence, grayscale=True)
+            return bool(check)
+
 
 class MessengerBot:
     """Handles response to messages including commands sent to the central command"""
@@ -308,12 +330,12 @@ class MessengerBot:
 
         print('Messenger bot initialized.')
 
-    def build_message(self, target, messagestring):
+    def build_message(self, target: str, message: str) -> str:
         """Returns a trade messsage in the form @['Playername'] ['message']"""
 
-        return "@{0} {1}".format(target, messagestring)
+        return "@{0} {1}".format(target, message)
 
-    def send_message(self, message):
+    def send_message(self, message: str):
         """Handles messaging players."""
 
         press('enter')
@@ -327,7 +349,53 @@ class InventoryManagerBot:
     def __init__(self):
         print('Initializing inventory manager bot...')
 
+        self.stashed_currency = {'scroll of wisdom': 0,
+                                 'portal scroll': 0,
+                                 'orb of alchemy': 0,
+                                 'orb of alteration': 0,
+                                 'orb of annulment': 0,
+                                 "armourer's scrap": 0,
+                                 'orb of augmentation': 0,
+                                 "glassblower's bauble": 0,
+                                 'blessed orb': 0,
+                                 'orb of chance': 0,
+                                 'chaos orb': 0,
+                                 "cartographer's chisel": 0,
+                                 'chromatic orb': 0,
+                                 'divine orb': 0,
+                                 'exalted orb': 0,
+                                 'exalted shard': 0,
+                                 'orb of fusing': 0,
+                                 "gemcutter's prism": 0,
+                                 "jeweller's orb": 0,
+                                 'mirror of kalandra': 0,
+                                 'perandus coin': 0,
+                                 "master cartographer's sextant": 0,
+                                 'regal orb': 0,
+                                 'orb of regret': 0,
+                                 'orb of scouring': 0,
+                                 'silver coin': 0,
+                                 'orb of transmutation': 0,
+                                 'vaal orb': 0,
+                                 "blacksmith's whetstone": 0,
+                                 "apprentice cartographer's sextant": 0,
+                                 "journeyman cartographer's sextant": 0}
+
         print('Inventory manager bot initialized.')
+
+    def check_stashed_currency(self):
+        stash = pat.GGGGetPlayerStash(league=LEAGUE, accountName=ACCTNAME, tabs=0, tabIndex=0)
+        for item in stash['items']:
+            itemName = item['typeLine'].lower()
+            if itemName in self.stashed_currency:
+                stackSize = int(item['properties'][0]['values'][0][0].split('/')[1])
+                self.stashed_currency[itemName] = Currency(item['stackSize'], stackSize)
+
+    def get_currency_count(self, currency: str) -> int:
+        return self.stashed_currency[currency].count
+
+    def get_currency_stack_size(self, currency: str) -> int:
+        return self.stashed_currency[currency].stackSize
 
 
 class MessageParserBot:
@@ -344,8 +412,6 @@ class MessageParserBot:
         thread1.start()
         print('Message parser bot initialized.')
 
-    clientPath = "C:\Program Files (x86)\Grinding Gear Games\Path of Exile\logs\Client.txt"
-    testingPath = "C:\\Users\\Gabriel Akers\\Documents\\testing.txt"
     tradeKey1 = "Hi, I'd like to buy your"
     tradeKey2 = "Hi, I would like to buy your"
     commandKey1 = "Execute66:"
@@ -374,7 +440,7 @@ class MessageParserBot:
             file.seek(here, os.SEEK_SET)
             yield file.read(delta)
 
-    def check_last_line(self, file, key, key2, key3):
+    def check_last_line(self, file, key: str, key2: str, key3: str):
         """searches the last line of the file for the search strings and sends it to the parser method"""
 
         for line in islice(self.reversed_lines(file), 1):
@@ -385,14 +451,14 @@ class MessageParserBot:
                 self.parse_command_message(s)
 
     def monitor_client_text(self):
-        with open(self.testingPath) as clientFile:
+        with open(CLIENTPATH) as clientFile:
             while True:
                 # if the string is found parse it to extract necessary info
                 self.check_last_line(file=clientFile, key=self.tradeKey1, key2=self.tradeKey2, key3=self.commandKey1)
 
                 sleep(self.interval)
 
-    def new_line(self, message):
+    def new_line(self, message: str):
         """Handles making sure we don't needlessly send the same message to the central control"""
 
         if message == self.lastMessage:
@@ -401,7 +467,8 @@ class MessageParserBot:
             self.lastMessage = message
             return True
 
-    def parse_command_message(self, message):
+    # noinspection PyTypeChecker
+    def parse_command_message(self, message: str):
         """Handles incoming commands sent through the game"""
 
         m = message.split('@')[1].split(' ')
@@ -413,7 +480,8 @@ class MessageParserBot:
                     if self.commandKey1 in m[x]:
                         Event('new command', m[x+1])
 
-    def parse_trade_message(self, message):
+    # noinspection PyTypeChecker
+    def parse_trade_message(self, message: str):
         """
         First, determines whether a trade is actually incoming by splitting and looking for "From"
         If the trade is determined to be incoming then extracts:
@@ -427,27 +495,25 @@ class MessageParserBot:
 
         m = message.split('@')[1].split(' ')
 
-        # check to be sure we haven't already seen this line
-        if self.new_line(m):
-            # detect if the trade is incoming
-            if 'from' in m[0].lower():
-                # incoming trade found, begin extracting useful info
-                # the offset is either 1 or 0 to account for the position of the guild tag because
-                # m is a list in the form of [@From, GuildTag, PlayerName, word1, word2, ...]
-                # sometimes the guildtag isn't present so this if statement checks for that
-                if '<' in m[1] and '>' in m[1]:
-                    offset = 1
-                else:
-                    offset = 0
-                playerName = m[1 + offset]
-                itemQuant = m[8 + offset]
-                itemName = m[9 + offset]
-                offerQuant = m[12 + offset]
-                offerName = m[13 + offset]
-                league = m[15 + offset]
+        # check to be sure we haven't already seen this line and detect if trade incoming
+        if self.new_line(m) and 'from' in m[0].lower():
+            # incoming trade found, begin extracting useful info
+            # the offset is either 1 or 0 to account for the position of the guild tag because
+            # m is a list in the form of [@From, GuildTag, PlayerName, word1, word2, ...]
+            # sometimes the guildtag isn't present so this if statement checks for that
+            if '<' in m[1] and '>' in m[1]:
+                offset = 1
+            else:
+                offset = 0
+            playerName = m[1 + offset]
+            itemQuant = m[8 + offset]
+            itemName = m[9 + offset]
+            offerQuant = m[12 + offset]
+            offerName = m[13 + offset]
+            league = m[15 + offset]
 
-                self.parsedMessage = {'playerName': playerName,
-                                 'itemName': itemName, 'itemQuant': itemQuant,
-                                 'offerName': offerName, 'offerQuant': offerQuant,
-                                 'league': league}
-                Event('new message', self.parsedMessage)
+            self.parsedMessage = {'playerName': playerName,
+                                  'itemName': itemName, 'itemQuant': itemQuant,
+                                  'offerName': offerName, 'offerQuant': offerQuant,
+                                  'league': league}
+            Event('new message', self.parsedMessage)
