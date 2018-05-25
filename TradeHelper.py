@@ -19,6 +19,37 @@ CLIENTPATH = "E:\Games\Path of Exile\Path of Exile\logs\Client.txt"
 DIRNAME = os.path.dirname(__file__)
 LEAGUE = 'Bestiary'
 ACCTNAME = 'testaccount_aziz'
+POETRADENAMES = {'exalted': 'exalted orb',
+                 'exalted shard': 'exalted shard',
+                 'chaos': 'chaos orb',
+                 'alteration': 'orb of alteration',
+                 'fusing': 'orb of fusing',
+                 'alchemy': 'orb of alchemy',
+                 'gcp': "gemcutter's prism",
+                 'chromatic': 'chromatic orb',
+                 "jeweller's": "jeweller's orb",
+                 'chance': 'orb of chance',
+                 'chisel': "cartographer's chisel",
+                 'scouring': 'orb of scouring',
+                 'blessed': 'blessed orb',
+                 'regret': 'orb of regret',
+                 'regal': 'regal orb',
+                 'divine': 'divine orb',
+                 'vaal': 'vaal orb',
+                 'augmentation': 'orb of augmentation',
+                 'coin': 'perandus coin',
+                 'silver': 'silver coin',
+                 'apprentice sextant': "apprentice cartographer's sextant",
+                 'journeyman sextant': "journeyman cartographer's sextant",
+                 'master sextant': "master cartographer's sextant",
+                 'orb of annulment': 'orb of annulment',
+                 "armourer's": "armourer's scrap",
+                 'whetstone': "blacksmith's whetstone",
+                 'transmutation': 'orb of transmutation',
+                 'bauble': "glassblower's bauble",
+                 'mirror': 'mirror of kalandra',
+                 'wisdom': 'scroll of wisdom',
+                 'portal': 'portal scroll'}
 
 
 def rel_path(filename):
@@ -37,6 +68,14 @@ class Point:
     def __init__(self, x: int, y: int):
         self.x = x
         self.y = y
+
+
+class Routine:
+    """Base class which can be instantiated to create custom trade routines.
+       For example, a trade is received so we check amount -> invite -> trade
+       But maybe instead you want to do: invite -> check -> trade
+       Or even: message them to fuck off -> block player
+       """
 
 
 # noinspection PyTypeChecker
@@ -99,9 +138,37 @@ class CentralControl(Observer):
         # holds the list of all new messages seens so they can be processed sequentially
         self.tradeList = []
         # all ratios listed in chaos equiv
-        self.sellRatios = {'alteration': 1, "jeweller's": 1, 'fusing': 1, "exalted": 1, "chance": 1, "chrome": 1,
-                           'gcp': 1, 'alchemy': 1, 'chisel': 1, 'scouring': 1, 'regal': 1, 'regret': 1, 'divine': 1,
-                           'vaal': 1}
+        self.sellRatios = {'scroll of wisdom': 1,
+                           'portal scroll': 1,
+                           'orb of alchemy': 1,
+                           'orb of alteration': 1,
+                           'orb of annulment': 1,
+                           "armourer's scrap": 1,
+                           'orb of augmentation': 1,
+                           "glassblower's bauble": 1,
+                           'blessed orb': 1,
+                           'orb of chance': 1,
+                           'chaos orb': 1,
+                           "cartographer's chisel": 1,
+                           'chromatic orb': 1,
+                           'divine orb': 1,
+                           'exalted orb': 1,
+                           'exalted shard': 1,
+                           'orb of fusing': 1,
+                           "gemcutter's prism": 1,
+                           "jeweller's orb": 1,
+                           'mirror of kalandra': 1,
+                           'perandus coin': 1,
+                           "master cartographer's sextant": 1,
+                           'regal orb': 1,
+                           'orb of regret': 1,
+                           'orb of scouring': 1,
+                           'silver coin': 1,
+                           'orb of transmutation': 1,
+                           'vaal orb': 1,
+                           "blacksmith's whetstone": 1,
+                           "apprentice cartographer's sextant": 1,
+                           "journeyman cartographer's sextant": 1}
 
         self.observe('new message', self.new_trade_message_received)
         self.observe('new command', self.new_command_message_received)
@@ -116,19 +183,27 @@ class CentralControl(Observer):
                 # if the trade list contains anything deal with them sequentially
                 self.transact_trade(self.tradeList.pop(0))
 
-    def transact_trade(self, tradeData: dict):
+    def transact_trade(self, tradeData: dict(playerName=None,
+                                             itemName=None, itemQuant=None,
+                                             offerName=None, offerQuant=None,
+                                             league=None)):
         """Handles the trading by calling the appropriate methods in the bots"""
 
         # first check to be sure we even have the item
-
-        # if we dont have the item inform the player otherwise invite them
+        if self.inventory.item_in_stock(tradeData['itemName'], tradeData['itemQuant']):
+            # do trade here
+            self.trader.invite_player(tradeData['playerName'])
+        else:
+            m = self.messenger.build_message(tradeData['playerName'], 'Sorry, that item is out of stock at the moment!')
+            print(m)
+            self.messenger.send_message(m)
 
         # click the correct screen locations to complete the trade
 
     def new_trade_message_received(self, messageData: dict):
         """Callback for trade message being received. Appends the trade to the list if the ratio offered is correct."""
 
-        print(messageData)
+        print("New trade message received: " + str(messageData))
         if self.ratio_checker(itemName=messageData['itemName'],
                               itemQuant=messageData['itemQuant'],
                               offer=messageData['offerQuant']):
@@ -143,7 +218,7 @@ class CentralControl(Observer):
     def ratio_checker(self, itemName: str, itemQuant: float, offer: float) -> bool:
         """Checks the ratio of chaos offered/items requested to make sure they match the ratio we selling at"""
 
-        return float(offer)/float(itemQuant) == self.sellRatios[itemName]
+        return float(offer) / float(itemQuant) == float(self.sellRatios[itemName])
 
 
 class TradeBot:
@@ -349,39 +424,48 @@ class InventoryManagerBot:
     def __init__(self):
         print('Initializing inventory manager bot...')
 
-        self.stashed_currency = {'scroll of wisdom': 0,
-                                 'portal scroll': 0,
-                                 'orb of alchemy': 0,
-                                 'orb of alteration': 0,
-                                 'orb of annulment': 0,
-                                 "armourer's scrap": 0,
-                                 'orb of augmentation': 0,
-                                 "glassblower's bauble": 0,
-                                 'blessed orb': 0,
-                                 'orb of chance': 0,
-                                 'chaos orb': 0,
-                                 "cartographer's chisel": 0,
-                                 'chromatic orb': 0,
-                                 'divine orb': 0,
-                                 'exalted orb': 0,
-                                 'exalted shard': 0,
-                                 'orb of fusing': 0,
-                                 "gemcutter's prism": 0,
-                                 "jeweller's orb": 0,
-                                 'mirror of kalandra': 0,
-                                 'perandus coin': 0,
-                                 "master cartographer's sextant": 0,
-                                 'regal orb': 0,
-                                 'orb of regret': 0,
-                                 'orb of scouring': 0,
-                                 'silver coin': 0,
-                                 'orb of transmutation': 0,
-                                 'vaal orb': 0,
-                                 "blacksmith's whetstone": 0,
-                                 "apprentice cartographer's sextant": 0,
-                                 "journeyman cartographer's sextant": 0}
+        self.stashed_currency = {'scroll of wisdom': Currency(0, 0),
+                                 'portal scroll': Currency(0, 0),
+                                 'orb of alchemy': Currency(0, 0),
+                                 'orb of alteration': Currency(0, 0),
+                                 'orb of annulment': Currency(0, 0),
+                                 "armourer's scrap": Currency(0, 0),
+                                 'orb of augmentation': Currency(0, 0),
+                                 "glassblower's bauble": Currency(0, 0),
+                                 'blessed orb': Currency(0, 0),
+                                 'orb of chance': Currency(0, 0),
+                                 'chaos orb': Currency(0, 0),
+                                 "cartographer's chisel": Currency(0, 0),
+                                 'chromatic orb': Currency(0, 0),
+                                 'divine orb': Currency(0, 0),
+                                 'exalted orb': Currency(0, 0),
+                                 'exalted shard': Currency(0, 0),
+                                 'orb of fusing': Currency(0, 0),
+                                 "gemcutter's prism": Currency(0, 0),
+                                 "jeweller's orb": Currency(0, 0),
+                                 'mirror of kalandra': Currency(0, 0),
+                                 'perandus coin': Currency(0, 0),
+                                 "master cartographer's sextant": Currency(0, 0),
+                                 'regal orb': Currency(0, 0),
+                                 'orb of regret': Currency(0, 0),
+                                 'orb of scouring': Currency(0, 0),
+                                 'silver coin': Currency(0, 0),
+                                 'orb of transmutation': Currency(0, 0),
+                                 'vaal orb': Currency(0, 0),
+                                 "blacksmith's whetstone": Currency(0, 0),
+                                 "apprentice cartographer's sextant": Currency(0, 0),
+                                 "journeyman cartographer's sextant": Currency(0, 0)}
+
+        inventory_level_update_thread = threading.Thread(target=self.continuous_inventory_level_update)
+        inventory_level_update_thread.daemon = True
+        inventory_level_update_thread.start()
 
         print('Inventory manager bot initialized.')
+
+    def continuous_inventory_level_update(self):
+        while True:
+            self.check_stashed_currency()
+            sleep(30)
 
     def check_stashed_currency(self):
         stash = pat.GGGGetPlayerStash(league=LEAGUE, accountName=ACCTNAME, tabs=0, tabIndex=0)
@@ -397,6 +481,9 @@ class InventoryManagerBot:
     def get_currency_stack_size(self, currency: str) -> int:
         return self.stashed_currency[currency].stackSize
 
+    def item_in_stock(self, currency: str, amount: int) -> bool:
+        return float(self.get_currency_count(currency)) >= float(amount)
+
 
 class MessageParserBot:
     """Handles parsing of messages for the trade bot to use"""
@@ -405,7 +492,7 @@ class MessageParserBot:
         print('Initializing message parser bot...')
         self.interval = interval
         # holds the most recent message seen
-        self.lastMessage = []
+        self.lastMessage = ''
         self.parsedMessage = {}
         thread1 = threading.Thread(target=self.monitor_client_text)
         thread1.daemon = True
@@ -414,7 +501,7 @@ class MessageParserBot:
 
     tradeKey1 = "Hi, I'd like to buy your"
     tradeKey2 = "Hi, I would like to buy your"
-    commandKey1 = "Execute66:"
+    commandKey1 = "Execute66: "
 
     def reversed_lines(self, file):
         """Generate the lines of file in reverse order."""
@@ -451,7 +538,7 @@ class MessageParserBot:
                 self.parse_command_message(s)
 
     def monitor_client_text(self):
-        with open(CLIENTPATH) as clientFile:
+        with open(CLIENTPATH, encoding="utf8") as clientFile:
             while True:
                 # if the string is found parse it to extract necessary info
                 self.check_last_line(file=clientFile, key=self.tradeKey1, key2=self.tradeKey2, key3=self.commandKey1)
@@ -461,11 +548,7 @@ class MessageParserBot:
     def new_line(self, message: str):
         """Handles making sure we don't needlessly send the same message to the central control"""
 
-        if message == self.lastMessage:
-            return False
-        else:
-            self.lastMessage = message
-            return True
+        return message != self.lastMessage
 
     # noinspection PyTypeChecker
     def parse_command_message(self, message: str):
@@ -478,7 +561,7 @@ class MessageParserBot:
                 # incoming command found determine what it is and send the appropriate message
                 for x in range(len(m)):
                     if self.commandKey1 in m[x]:
-                        Event('new command', m[x+1])
+                        Event('new command', m[x + 1])
 
     # noinspection PyTypeChecker
     def parse_trade_message(self, message: str):
@@ -489,31 +572,55 @@ class MessageParserBot:
                 -what they want
                 -their offer
                 -the league they are in
-        that info is sent to the central control in the form of a list:
-                {name, itemName, itemQuant, offerName, offerQuant, league}
+        that info is sent to the central control in the form of a dict:
+                {playerName, itemName, itemQuant, offerName, offerQuant, league}
         """
 
-        m = message.split('@')[1].split(' ')
+        playerName = None
+        itemName = None
+        itemQuant = None
+        offerName = None
+        offerQuant = None
+        leagueName = None
 
+        splitMessage = message.split('@')[1]
         # check to be sure we haven't already seen this line and detect if trade incoming
-        if self.new_line(m) and 'from' in m[0].lower():
-            # incoming trade found, begin extracting useful info
-            # the offset is either 1 or 0 to account for the position of the guild tag because
-            # m is a list in the form of [@From, GuildTag, PlayerName, word1, word2, ...]
-            # sometimes the guildtag isn't present so this if statement checks for that
-            if '<' in m[1] and '>' in m[1]:
-                offset = 1
-            else:
-                offset = 0
-            playerName = m[1 + offset]
-            itemQuant = m[8 + offset]
-            itemName = m[9 + offset]
-            offerQuant = m[12 + offset]
-            offerName = m[13 + offset]
-            league = m[15 + offset]
+        if self.new_line(message) and 'from' in splitMessage.split(' ')[0].lower():
+            self.lastMessage = message
 
-            self.parsedMessage = {'playerName': playerName,
-                                  'itemName': itemName, 'itemQuant': itemQuant,
-                                  'offerName': offerName, 'offerQuant': offerQuant,
-                                  'league': league}
-            Event('new message', self.parsedMessage)
+            try:
+                playerNameMessage = splitMessage.split(' ')
+                if '<' in playerNameMessage[1] and '>' in playerNameMessage[1]:
+                    playerName = playerNameMessage[2]
+                else:
+                    playerName = playerNameMessage[1]
+
+                splitMessage = splitMessage.split('your ')[1].lower()
+
+                itemMessage = splitMessage.split('my ')[0]
+                for c in POETRADENAMES:
+                    if c in itemMessage:
+                        itemName = POETRADENAMES[c]
+                        itemQuant = itemMessage.split(' ')[0]
+
+                offerMessage = splitMessage.split('my ')[1]
+                for c in POETRADENAMES:
+                    if c in offerMessage:
+                        offerName = POETRADENAMES[c]
+                        offerQuant = offerMessage.split(' ')[0]
+
+                for i in range(len(offerMessage.split(' '))):
+                    if offerMessage.split(' ')[i] == 'in':
+                        leagueName = offerMessage.split(' ')[i + 1]
+
+                self.parsedMessage = {'playerName': playerName.strip(':'),
+                                      'itemName': itemName, 'itemQuant': itemQuant,
+                                      'offerName': offerName, 'offerQuant': offerQuant,
+                                      'league': leagueName}
+
+                for x in self.parsedMessage:
+                    if self.parsedMessage[x] is None:
+                        print("{0} failed to populate...".format(x))
+                Event('new message', self.parsedMessage)
+            except IndexError:
+                print('Message not in Poe.trade form.')
