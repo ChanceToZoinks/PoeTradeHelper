@@ -19,6 +19,7 @@ CLIENTPATH = "E:\Games\Path of Exile\Path of Exile\logs\Client.txt"
 DIRNAME = os.path.dirname(__file__)
 LEAGUE = 'Bestiary'
 ACCTNAME = 'testaccount_aziz'
+CHARNAME = 'DuelistIsACoolGuy'
 POETRADENAMES = {'exalted': 'exalted orb',
                  'exalted shard': 'exalted shard',
                  'chaos': 'chaos orb',
@@ -75,6 +76,7 @@ class Routine:
        For example, a trade is received so we check amount -> invite -> trade
        But maybe instead you want to do: invite -> check -> trade
        Or even: message them to fuck off -> block player
+       TODO: Finish this class and incorporate it into the CentralControl
        """
 
 
@@ -110,9 +112,10 @@ class PointDecoder(JSONDecoder):
 
 class CentralControl(Observer):
     """This is the central event handler. It holds the references for each of the five bots and contains callbacks
-       necessary to maintain the correct order of events and to ensure trades are being completed."""
+       necessary to maintain the correct order of events and to ensure trades are being completed.
+       Also contains more complex methods that assemble the base bot methods into routines needed for trading."""
 
-    def __init__(self, league=LEAGUE, interval=1):
+    def __init__(self, interval=1):
         # Observer's init needs to be called
         Observer.__init__(self)
 
@@ -134,7 +137,7 @@ class CentralControl(Observer):
         ctypes.windll.user32.SwitchToThisWindow(win._hwnd)
         win.set_foreground()
 
-        self.league = league
+        self.players_in_area = []
         # holds the list of all new messages seens so they can be processed sequentially
         self.tradeList = []
         # all ratios listed in chaos equiv
@@ -172,10 +175,30 @@ class CentralControl(Observer):
 
         self.observe('new message', self.new_trade_message_received)
         self.observe('new command', self.new_command_message_received)
+        self.observe('player entered area', self.add_player)
+        self.observe('player left area', self.remove_player)
+        self.observe('zone changed', self.clear_player_list)
 
         trade_work_thread = threading.Thread(target=self.work_trade_list)
         trade_work_thread.daemon = True
         trade_work_thread.start()
+
+    def add_player(self, playerName: str):
+        """Adds player to the list of players currently in the area."""
+
+        if playerName not in self.players_in_area:
+            self.players_in_area.append(playerName)
+
+    def remove_player(self, playerName: str):
+        """Removes players from the list of players in the area."""
+
+        if playerName in self.players_in_area:
+            self.players_in_area.remove(playerName)
+
+    def clear_player_list(self, arg=None):
+        """CLears the list of players currently in the area. Should only be called on zone change."""
+
+        self.players_in_area.clear()
 
     def work_trade_list(self):
         while True:
@@ -189,13 +212,25 @@ class CentralControl(Observer):
                                              league=None)):
         """Handles the trading by calling the appropriate methods in the bots"""
 
+        print('Trade routine beginning, checking if item is in stock...')
         # first check to be sure we even have the item
         if self.inventory.item_in_stock(tradeData['itemName'], tradeData['itemQuant']):
-            # do trade here
+
+            print('item is in stock, inviting {0}...'.format(tradeData['playerName']))
+
+            # TODO: Abstract the trade routine into a class so it can be modularized and customized more easily
+
+            # first invite player
             self.trader.invite_player(tradeData['playerName'])
+            # open stash
+            if self.open_stash():
+                # get items here
+                print('stash opened, grabbing items...')
+            else:
+                print('stash not found. something went wrong. maybe you forgot to toggle highlighting?')
         else:
+            print('Item not in stock, notifying the player.')
             m = self.messenger.build_message(tradeData['playerName'], 'Sorry, that item is out of stock at the moment!')
-            print(m)
             self.messenger.send_message(m)
 
         # click the correct screen locations to complete the trade
@@ -219,6 +254,45 @@ class CentralControl(Observer):
         """Checks the ratio of chaos offered/items requested to make sure they match the ratio we selling at"""
 
         return float(offer) / float(itemQuant) == float(self.sellRatios[itemName])
+
+    def reset_location(self):
+        """Closes all in game windows and returns to hideout."""
+
+        self.trader.close_windows()
+        self.trader.go_hideout(playerName=' ')
+
+    def open_stash(self, tries=3) -> bool:
+        """Attempts to locate the stash and open it. Retries tries=3 times and if it fails resets."""
+
+        print('attemping to open stash...')
+        for i in range(tries):
+            try:
+                loc = self.finder.find_stash()
+                self.trader.click(loc)
+            except AttributeError:
+                print("You probably have highlighting disabled.")
+            sleep(3)
+            if self.finder.confirm_in_stash():
+                return True
+            else:
+                print('stash not found, trying again...')
+                continue
+
+        print('attempting reset for one last try...')
+        self.reset_location()
+        try:
+            loc = self.finder.find_stash()
+            self.trader.click(loc)
+        except AttributeError:
+            print("You probably have highlighting disabled.")
+        sleep(3)
+        return self.finder.confirm_in_stash()
+
+    def calc_stacks(self, quantity: int, stackSize: int) -> int:
+        """Determines the number of ctrl+clicks necessary to extract the required currency based on stack size."""
+
+        # TODO: Finish this
+
 
 
 class TradeBot:
@@ -276,6 +350,22 @@ class TradeBot:
         typewrite('/hideout {0}'.format(playerName))
         press('enter')
 
+    def close_windows(self, closeKey='z'):
+        """Handles closing all windows."""
+
+        typewrite(closeKey)
+
+    def leave_party(self):
+        """Kicks self from party."""
+
+        self.kick_player(playerName=CHARNAME)
+
+    def grab_stack_currency(self, point: Point, clicks: int):
+        """Control clicks at the correct locations to extract stacks of currency from stash."""
+
+        for i in range(clicks):
+            self.control_click(point)
+
 
 class FinderBot:
     """Handles locating the on screen coordinates of the currency in the currency tab for the trade bot."""
@@ -283,37 +373,37 @@ class FinderBot:
     def __init__(self):
         print('Initializing finder bot...')
 
-        self.currencyImages = {'wisdom': rel_path('wisdom.png'),
-                               'portal': rel_path('portal.png'),
-                               'alchemy': rel_path('alchemy.png'),
-                               'alteration': rel_path('alteration.png'),
-                               'annul': rel_path('annul.png'),
-                               'armorer': rel_path('armorer.png'),
-                               'augmentation': rel_path('augmentation.png'),
-                               'bauble': rel_path('bauble.png'),
-                               'blessed': rel_path('blessed.png'),
-                               'chance': rel_path('chance.png'),
-                               'chaos': rel_path('chaos.png'),
-                               'chisel': rel_path('chisel.png'),
-                               'chromatic': rel_path('chromatic.png'),
-                               'divine': rel_path('divine.png'),
-                               'exalt': rel_path('exalt.png'),
-                               'exalt shard': rel_path('exaltShard.png'),
-                               'fusing': rel_path('fusing.png'),
-                               'gcp': rel_path('gcp.png'),
-                               'jeweller': rel_path('jeweller.png'),
+        self.currencyImages = {'scroll of wisdom': rel_path('wisdom.png'),
+                               'portal scroll': rel_path('portal.png'),
+                               'orb of alchemy': rel_path('alchemy.png'),
+                               'orb of alteration': rel_path('alteration.png'),
+                               'orb of annulment': rel_path('annul.png'),
+                               "armourer's scrap": rel_path('armorer.png'),
+                               'orb of augmentation': rel_path('augmentation.png'),
+                               "glassblower's bauble": rel_path('bauble.png'),
+                               'blessed orb': rel_path('blessed.png'),
+                               'orb of chance': rel_path('chance.png'),
+                               'chaos orb': rel_path('chaos.png'),
+                               "cartographer's chisel": rel_path('chisel.png'),
+                               'chromatic orb': rel_path('chromatic.png'),
+                               'divine orb': rel_path('divine.png'),
+                               'exalted orb': rel_path('exalt.png'),
+                               'exalted shard': rel_path('exaltShard.png'),
+                               'orb of fusing': rel_path('fusing.png'),
+                               "gemcutter's prism": rel_path('gcp.png'),
+                               "jeweller's orb": rel_path('jeweller.png'),
                                'mirror of kalandra': rel_path('mirror.png'),
                                'perandus coin': rel_path('perandusCoin.png'),
-                               'master sextant': rel_path('redSextant.png'),
-                               'regal': rel_path('regal.png'),
-                               'regret': rel_path('regret.png'),
-                               'scouring': rel_path('scouring.png'),
+                               "master cartographer's sextant": rel_path('redSextant.png'),
+                               'regal orb': rel_path('regal.png'),
+                               'orb of regret': rel_path('regret.png'),
+                               'orb of scouring': rel_path('scouring.png'),
                                'silver coin': rel_path('silverCoin.png'),
-                               'transmutation': rel_path('transmutation.png'),
-                               'vaal': rel_path('vaal.png'),
-                               'whetstone': rel_path('whetstone.png'),
-                               'apprentice sextant': rel_path('whiteSextant.png'),
-                               'journeyman sextant': rel_path('yellowSextant.png')}
+                               'orb of transmutation': rel_path('transmutation.png'),
+                               'vaal orb': rel_path('vaal.png'),
+                               "blacksmith's whetstone": rel_path('whetstone.png'),
+                               "apprentice cartographer's sextant": rel_path('whiteSextant.png'),
+                               "journeyman cartographer's sextant": rel_path('yellowSextant.png')}
         self.currencyLocations = {'scroll of wisdom': None,
                                   'portal scroll': None,
                                   'orb of alchemy': None,
@@ -351,6 +441,15 @@ class FinderBot:
                                  'guildStash1': rel_path('guildStash1.png')}
         print('Finder bot initialized.')
 
+    def populate_currency_locations(self):
+        """Decodes the stored currency tab slot locations back into the dict for easier access.
+           Must always be called after find currency slots has been used at least once."""
+
+        with open('currencyStashLocations.json', 'r') as f:
+            j = json.load(f, cls=PointDecoder)
+            for slot in j:
+                self.currencyLocations[slot] = j[slot]
+
     def find_currency_slots(self, confidence=.95):
         """Should only be called when currency tab is completely empty (eg start of league/account).
            Runs perfectly when tested on 1920x1080 screen."""
@@ -360,7 +459,7 @@ class FinderBot:
             # pyautogui has undocumented confidence parameter for locate function
             p.x, p.y = locateCenterOnScreen(self.currencyImages[img], confidence=confidence)
             self.currencyLocations[img] = p
-        with open('currencyStashLocations.json', 'w') as f:
+        with open('currencyStashLocations.json', 'w+') as f:
             json.dump(obj=self.currencyLocations, fp=f,
                       cls=PointEncoder, indent=4, sort_keys=True)
 
@@ -493,6 +592,8 @@ class MessageParserBot:
         self.interval = interval
         # holds the most recent message seen
         self.lastMessage = ''
+        self.lastEnterMessage = ''
+        self.lastZoneMessage = ''
         self.parsedMessage = {}
         thread1 = threading.Thread(target=self.monitor_client_text)
         thread1.daemon = True
@@ -502,6 +603,9 @@ class MessageParserBot:
     tradeKey1 = "Hi, I'd like to buy your"
     tradeKey2 = "Hi, I would like to buy your"
     commandKey1 = "Execute66: "
+    playerEnterKey = 'has joined the area'
+    playerLeaveKey = 'has left the area'
+    zoneChangeKey = 'You have entered'
 
     def reversed_lines(self, file):
         """Generate the lines of file in reverse order."""
@@ -527,29 +631,51 @@ class MessageParserBot:
             file.seek(here, os.SEEK_SET)
             yield file.read(delta)
 
-    def check_last_line(self, file, key: str, key2: str, key3: str):
+    def check_last_line(self, file, tradeKey: str, tradeKey2: str,
+                        commandKey1: str,
+                        enterKey: str, leaveKey: str,
+                        zoneKey: str):
         """searches the last line of the file for the search strings and sends it to the parser method"""
 
         for line in islice(self.reversed_lines(file), 1):
             s = line.rstrip('\n')
-            if key in s or key2 in s:
+            if tradeKey in s or tradeKey2 in s:
                 self.parse_trade_message(s)
-            elif key3 in s:
+            elif commandKey1 in s:
                 self.parse_command_message(s)
+            elif enterKey in s or leaveKey in s:
+                self.parse_player_movement_message(s)
+            elif zoneKey in s:
+                self.parse_zone_change_message(s)
 
     def monitor_client_text(self):
         with open(CLIENTPATH, encoding="utf8") as clientFile:
             while True:
                 # if the string is found parse it to extract necessary info
-                self.check_last_line(file=clientFile, key=self.tradeKey1, key2=self.tradeKey2, key3=self.commandKey1)
+                self.check_last_line(file=clientFile,
+                                     tradeKey=self.tradeKey1, tradeKey2=self.tradeKey2,
+                                     commandKey1=self.commandKey1,
+                                     enterKey=self.playerEnterKey, leaveKey=self.playerLeaveKey,
+                                     zoneKey=self.zoneChangeKey)
 
                 sleep(self.interval)
 
-    def new_line(self, message: str):
+    def new_line(self, message: str) -> bool:
         """Handles making sure we don't needlessly send the same message to the central control"""
 
         return message != self.lastMessage
 
+    def new_enter(self, enterMessage: str) -> bool:
+        """Handles making sure we don't tell the CentralControl about a player entering that has already entered."""
+
+        return enterMessage != self.lastEnterMessage
+
+    def new_zone(self, enterMessage: str) -> bool:
+        """Handles zone changes to ensure the list of players in current area is always correct."""
+
+        return enterMessage != self.lastZoneMessage
+
+    # TODO: Refactor this method
     # noinspection PyTypeChecker
     def parse_command_message(self, message: str):
         """Handles incoming commands sent through the game"""
@@ -562,6 +688,28 @@ class MessageParserBot:
                 for x in range(len(m)):
                     if self.commandKey1 in m[x]:
                         Event('new command', m[x + 1])
+
+    def parse_zone_change_message(self, message: str):
+        """Handles parsing zone change messages and notifying CentralControl of changes in zone."""
+
+        if self.new_zone(message):
+            self.lastZoneMessage = message
+
+            Event('zone changed', None)
+
+    def parse_player_movement_message(self, message: str):
+        """Handles notifying the central control of players entering/leaving the area.
+           Broadcasts an event containing a the player's name in string form"""
+
+        splitMessage = message.split(' : ')[1]
+        playerName = splitMessage.split(' ')[0]
+        if self.new_enter(message):
+            self.lastEnterMessage = message
+
+            if self.playerEnterKey in splitMessage:
+                Event('player entered area', playerName)
+            elif self.playerLeaveKey in splitMessage:
+                Event('player left area', playerName)
 
     # noinspection PyTypeChecker
     def parse_trade_message(self, message: str):

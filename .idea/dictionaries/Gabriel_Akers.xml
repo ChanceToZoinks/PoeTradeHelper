@@ -2,6 +2,7 @@
   <dictionary name="Gabriel Akers">
     <words>
       <w>acctname</w>
+      <w>charname</w>
       <w>clientpath</w>
       <w>dirname</w>
       <w>failsafe</w>
@@ -9,6 +10,7 @@
       <w>poetradenames</w>
       <w>pyautogui</w>
       <w>quant</w>
+      <w>testaccount</w>
     </words>
   </dictionary>
 </component>
