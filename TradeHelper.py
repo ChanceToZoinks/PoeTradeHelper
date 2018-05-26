@@ -226,6 +226,7 @@ class CentralControl(Observer):
             if self.open_stash():
                 # get items here
                 print('stash opened, grabbing items...')
+
             else:
                 print('stash not found. something went wrong. maybe you forgot to toggle highlighting?')
         else:
@@ -288,11 +289,27 @@ class CentralControl(Observer):
         sleep(3)
         return self.finder.confirm_in_stash()
 
-    def calc_stacks(self, quantity: int, stackSize: int) -> int:
-        """Determines the number of ctrl+clicks necessary to extract the required currency based on stack size."""
+    def calc_stacks(self, quantity: int, stackSize: int) -> (int, int):
+        """Determines the number of ctrl+clicks necessary to extract the required currency based on stack size.
+           Returns a tuple of form (stacks, remainder)"""
 
-        # TODO: Finish this
+        stacks = 0
+        currentAmount = quantity
+        while currentAmount >= stackSize:
+            stacks += 1
+            currentAmount -= stackSize
+        return currentAmount, stacks
 
+    def get_currency(self, currency: str, amount: int):
+        """Calls the necessary methods in TradeBot to extract the currency from the stash."""
+
+        stacks, remainder = self.calc_stacks(quantity=amount,
+                                             stackSize=self.inventory.stashed_currency[currency].stackSize)
+
+        self.trader.get_stack_currency(point=self.finder.currencyLocations[currency],
+                                       clicks=stacks)
+
+        # TODO: Finish method
 
 
 class TradeBot:
@@ -360,11 +377,20 @@ class TradeBot:
 
         self.kick_player(playerName=CHARNAME)
 
-    def grab_stack_currency(self, point: Point, clicks: int):
+    def get_stack_currency(self, point: Point, clicks: int):
         """Control clicks at the correct locations to extract stacks of currency from stash."""
 
         for i in range(clicks):
             self.control_click(point)
+
+    def get_num_currency(self, point: Point, amount: int, inventorySlot: Point):
+        """Shift clicks the correct location and inputs the number of currency to grab the currency to the mouse.
+           Inventory slot is the open inventory slot the item should go in."""
+
+        self.shift_click(point)
+        typewrite(str(amount))
+        press('enter')
+        self.click(inventorySlot)
 
 
 class FinderBot:
@@ -439,6 +465,8 @@ class FinderBot:
                             'stash1': rel_path('stash1.png')}
         self.guildStashImages = {'guildStash0': rel_path('guildStash0.png'),
                                  'guildStash1': rel_path('guildStash1.png')}
+        self.inventoryMarkerImage = rel_path('inventoryMarker.png')
+        self.inventorySlotLocations = {}
         print('Finder bot initialized.')
 
     def populate_currency_locations(self):
@@ -457,8 +485,12 @@ class FinderBot:
         for img in self.currencyImages:
             p = Point(0, 0)
             # pyautogui has undocumented confidence parameter for locate function
-            p.x, p.y = locateCenterOnScreen(self.currencyImages[img], confidence=confidence)
-            self.currencyLocations[img] = p
+            try:
+                p.x, p.y = locateCenterOnScreen(self.currencyImages[img], confidence=confidence)
+            except TypeError:
+                print('Empty currency tab slot {0} not found.'.format(img))
+            else:
+                self.currencyLocations[img] = p
         with open('currencyStashLocations.json', 'w+') as f:
             json.dump(obj=self.currencyLocations, fp=f,
                       cls=PointEncoder, indent=4, sort_keys=True)
@@ -494,6 +526,46 @@ class FinderBot:
         else:
             check = locateOnScreen(self.stashImages['stash1'], confidence=confidence, grayscale=True)
             return bool(check)
+
+    def populate_inventory_slot_locations(self):
+        """Decodes the stored inventory slot locations back into the dict for easier access.
+           Must always be called after the find inventory slots method has been used at least once."""
+
+        with open('inventorySlotLocations.json', 'r') as f:
+            j = json.load(f, cls=PointDecoder)
+            for slot in j:
+                self.inventorySlotLocations[slot] = j[slot]
+
+    def find_inventory_slots(self, confidence=.9):
+        """Place ONE scroll of wisdom in the top left inventory slot (0) and call this function to get the coordinates.
+           The corresponding image is 50x50 pixels on 1920x1080. After (0) is found the rest are calculated.
+           Inventory chart:
+
+                            0 5 10 15 20 25 30 35 40 45 50 55
+                            1 6 11 16 21 26 31 36 41 46 51 56
+                            2 7 12 17 22 27 32 37 42 47 52 57
+                            3 8 13 18 23 28 33 38 43 48 53 58
+                            4 9 14 19 24 29 34 39 44 49 54 59
+
+           Should really only be called once at start of league or if your display settings change.
+           The inventory should also be empty with the exception of the scroll of wisdom.
+        """
+        alert('Empty your inventory and place one scroll of wisdom in the top left slot.')
+        sleep(1)
+        loc = Point(0, 0)
+        try:
+            loc.x, loc.y = locateCenterOnScreen(self.inventoryMarkerImage, confidence=confidence)
+        except TypeError:
+            print('Inventory marker not found. Did you put a wisdom scroll in slot 0?')
+        else:
+            k = 0
+            for x in range(12):
+                for y in range(5):
+                    self.inventorySlotLocations[k] = Point(loc.x + x * 52, loc.y + y * 52)
+                    k += 1
+            with open('inventorySlotLocations.json', 'w+') as f:
+                json.dump(obj=self.inventorySlotLocations, fp=f,
+                          cls=PointEncoder, indent=4, sort_keys=True)
 
 
 class MessengerBot:
