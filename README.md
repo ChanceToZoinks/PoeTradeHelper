@@ -14,4 +14,5 @@ c = CentralControl()
 
 
 The class CentralControl should handle everything automatically from there assuming you've got the proper screenshots and
-file paths setup.
+file paths setup, but some things can be manually called if you'd like and the methods are all exposed so it's possible to
+create custom behaviors.
